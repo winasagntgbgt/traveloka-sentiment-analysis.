@@ -17,7 +17,6 @@ limit = st.sidebar.slider("Jumlah Ulasan yang Ditarik", 500, 5000, 1000)
 # --- FUNGSI AMBIL DATA ---
 @st.cache_data
 def load_data(n_reviews):
-    # Mengambil data dari Google Play
     result, _ = reviews(
         'com.traveloka.android', 
         lang='id', 
@@ -29,32 +28,37 @@ def load_data(n_reviews):
     data['at'] = pd.to_datetime(data['at'])
     data['year'] = data['at'].dt.year
     
-    # 1. ASPEK POLARITAS (Sentimen Dasar)
+    # 1. LABEL SENTIMEN
     def label_sentiment(score):
         if score >= 4: return 'Positif'
         elif score <= 2: return 'Negatif'
         return 'Netral'
     data['sentiment'] = data['score'].apply(label_sentiment)
     
-    # 2. ANALISIS BERBASIS ASPEK (Keyword Matching)
+    # 2. ANALISIS BERBASIS ASPEK (Kamus Diperluas)
     aspek_dict = {
-        'Performa': ['lag', 'lemot', 'crash', 'lambat', 'loading', 'bug', 'error'],
-        'UI/UX': ['tampilan', 'desain', 'bingung', 'ribet', 'tombol', 'warna'],
-        'Fitur': ['tiket', 'hotel', 'pesawat', 'paylater', 'refund', 'kereta', 'pesan'],
-        'Harga': ['mahal', 'promo', 'murah', 'diskon', 'biaya', 'hemat', 'pajak']
+        'Performa': ['lag', 'lemot', 'crash', 'lambat', 'lancar', 'cepat', 'ringan', 'bug', 'error', 'loading'],
+        'UI/UX': ['tampilan', 'desain', 'bingung', 'ribet', 'bagus', 'keren', 'mudah', 'simpel', 'tombol', 'warna'],
+        'Fitur': ['tiket', 'hotel', 'pesawat', 'paylater', 'refund', 'kereta', 'lengkap', 'bermanfaat', 'pesan'],
+        'Harga': ['mahal', 'promo', 'murah', 'diskon', 'ekonomis', 'hemat', 'pajak', 'terjangkau', 'biaya']
     }
+    
     def detect_aspect(text):
         text = str(text).lower()
         for k, v in aspek_dict.items():
             if any(word in text for word in v): return k
         return 'Lainnya'
+    
     data['aspek'] = data['content'].apply(detect_aspect)
     return data
 
-# Menjalankan fungsi ambil data
 df = load_data(limit)
 
-# --- VISUALISASI POIN 1 & 5 (Metrik & Subjektivitas) ---
+# --- KONFIGURASI WARNA (Sesuai Permintaan) ---
+# Positif = Biru (#3498db), Negatif = Merah (#e74c3c), Netral = Abu-abu (#95a5a6)
+warna_custom = {'Positif': '#3498db', 'Negatif': '#e74c3c', 'Netral': '#95a5a6'}
+
+# --- RINGKASAN METRIK ---
 st.subheader("📌 Ringkasan Utama")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Ulasan", len(df))
@@ -64,29 +68,32 @@ c4.metric("Sentimen Negatif", f"{len(df[df['sentiment']=='Negatif'])}")
 
 st.divider()
 
-# --- VISUALISASI POIN 4 (Tren Tahun ke Tahun) ---
+# --- GRAFIK TREN TAHUN KE TAHUN ---
 st.subheader("📈 Tren Sentimen Tahun ke Tahun")
 trend = df.groupby(['year', 'sentiment']).size().reset_index(name='jumlah')
 fig_line = px.line(trend, x='year', y='jumlah', color='sentiment', markers=True, 
-                 color_discrete_map={'Positif':'#2ecc71', 'Negatif':'#e74c3c', 'Netral':'#95a5a6'})
+                 color_discrete_map=warna_custom)
 st.plotly_chart(fig_line, use_container_width=True)
 
-# --- VISUALISASI POIN 2 & 5 (Aspek & Relevansi) ---
+# --- GRAFIK ASPEK ---
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.subheader("🎯 Masalah Berdasarkan Aspek")
+    st.subheader("🎯 Sentimen Berdasarkan Aspek")
     aspek_chart = df[df['aspek'] != 'Lainnya'].groupby(['aspek', 'sentiment']).size().reset_index(name='total')
-    fig_bar = px.bar(aspek_chart, x='aspek', y='total', color='sentiment', barmode='group')
+    fig_bar = px.bar(aspek_chart, x='aspek', y='total', color='sentiment', barmode='group',
+                   color_discrete_map=warna_custom)
     st.plotly_chart(fig_bar, use_container_width=True)
 
 with col_right:
     st.subheader("🔥 Ulasan Paling Relevan (Banyak Disukai)")
     top_reviews = df.sort_values(by='thumbsUpCount', ascending=False).head(5)
     for index, row in top_reviews.iterrows():
+        # Menampilkan box ulasan dengan warna indikator
+        warna_box = "info" if row['sentiment'] == 'Positif' else "error" if row['sentiment'] == 'Negatif' else "warning"
         st.info(f"**[{row['sentiment']} - {row['year']}]** ({row['thumbsUpCount']} Likes)\n\n{row['content'][:150]}...")
 
-# --- VISUALISASI POIN 3 (Ekstraksi Kata Kunci/Detail Data) ---
+# --- TABEL DATA ---
 st.divider()
-st.subheader("🔍 Detail Data & Kata Kunci")
-st.dataframe(df[['at', 'sentiment', 'aspek', 'content', 'thumbsUpCount']].sort_values(by='at', ascending=False))
+st.subheader("🔍 Detail Data Ulasan")
+st.dataframe(df[['at', 'sentiment', 'aspek', 'content', 'thumbsUpCount']].sort_values(by='at', ascending=False), use_container_width=True)
